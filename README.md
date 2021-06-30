@@ -1,14 +1,14 @@
-![Python package](https://github.com/Filter-Bubble/e2e-Dutch/workflows/Python%20package/badge.svg)
-[![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/Filter-Bubble/e2e-Dutch/badges/quality-score.png?b=master)](https://scrutinizer-ci.com/g/Filter-Bubble/e2e-Dutch/?branch=master)
-[![codecov](https://codecov.io/gh/Filter-Bubble/e2e-coref/branch/master/graph/badge.svg)](https://codecov.io/gh/Filter-Bubble/e2e-coref)
-[![DOI](https://zenodo.org/badge/276878416.svg)](https://zenodo.org/badge/latestdoi/276878416)
 
 
-# e2e-Dutch
-Code for e2e coref model in Dutch. The code is based on the [original e2e model for English](https://github.com/kentonl/e2e-coref), and modified to work for Dutch.
-If you make use of this code, please [cite it](#citing-this-code) and also cite [the original e2e paper](https://arxiv.org/abs/1804.05392).
+# DutchParliamentCorefResolution
+This repository contains the codebase for the paper 'Neural Coreference Resolution for Dutch Parliamentary Documents', presented at the 31th CLIN conference
+on Natural Language Processing for the Dutch Language. This repository is a fork of the [Dutch e2e implementation] of the [e2e model by Kenton Lee](https://arxiv.org/abs/1804.05392),
+and also contains the dataset that was annotated during this project, as well as the parse trees that were used for the rulebased baseline model based on Alpino.
 
 ## Installation
+
+Below are the installation instructions for this repository, these are largely based on he instructions of the original repository.
+
 Requirements:
 - Python 3.6 or 3.7
 - pip
@@ -26,84 +26,20 @@ pip install tensorflow
 pip install e2e-Dutch
 ```
 
-## Quick start - Stanza
+## Changes
 
-e2edutch can be used as part of a [Stanza](https://stanfordnlp.github.io/stanza/) pipeline.
+Although the version of the e2e model used in this research is mostly identical to the main repository, some changes have been made to the original repository,
+the largest changes are mentioned below.
 
-Coreferences are added similarly to Stanza's entities:
- * a ___Document___ has an attribute ___clusters___ that is a List of coreference clusters;
- * a coreference cluster is a List of Stanza ___Spans___.
+- In line with the [original e2e implementation](https://github.com/kentonl/e2e-coref), the option to include speaker metadata in the e2e model has been
+added to this version of the e2e model in the 'coref_model.py' file.
 
-```
-import stanza
-import e2edutch.stanza
+- For the experiments concerning the genders of the actors mentioned in texts, the ability to add this information has been added, these changes
+were also made in the 'coref_model.py' file.
 
-nlp = stanza.Pipeline(lang='nl', processors='tokenize,coref')
+- some minor changes were made in the 'train.py' file, including the ability to specify the number of epochs that the model should be trained for in
+the form of the '--epochs' command line argument.
 
-doc = nlp('Dit is een test document. Dit document bevat coreferenties.')
-print ([[span.text for span in cluster] for cluster in doc.clusters])
-```
+- As the method used for converting the files to jsonlines is custom because of the speaker information, a new train preparation script is added, 'my_train.sh',
+and the 'download.py' script was also also slightly altered to remove downloads that are not necessary for this project.
 
-Note that you first need to download the stanza models with `stanza.download('nl')`.
-The e2e-Dutch model files are automatically downloaded to the stanza resources directory when loading the pipeline.
-
-## Quick start
-A pretrained model is available to download:
-```
-python -m e2edutch.download [-d DATAPATH]
-```
-This downloads the model files, the default location is the `data` directory inside the python package location.
-It can also be set manually with the `DATAPATH` argument, or by specifying the enviornment vairable `E2E_HOME`.
-
-
-
-The pretrained model can be used to predict coreferences on a conll 2012 files, jsonlines files, [NAF files](https://github.com/newsreader/NAF) or plain text files (in the latter case, the stanza package will be used for tokenization).
-```
-python -m e2edutch.predict [-h] [-o OUTPUT_FILE] [-f {conll,jsonlines,naf}]
-                  [-c WORD_COL] [--cfg_file CFG_FILE] [-v]
-                  config input_filename
-
-positional arguments:
-  config: name of the model to use for prediction ('final' for the pretrained)
-  input_filename
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -o OUTPUT_FILE, --output_file OUTPUT_FILE
-  -f {conll,jsonlines,naf}, --format_out {conll,jsonlines,naf}
-  -c WORD_COL, --word_col WORD_COL
-  --cfg_file CFG_FILE   config file
-  -v, --verbose
-
-
-```
-The user-specific configurations (such as data directory, data files, etc) can be provided in a separate config file, the defaults are specified in `cfg/defaults.conf`.
-
-
-## Train your own model
-To train a new model:
-- Make sure the model config file (default: `e2edutch/cfg/models.conf`) describes the model you wish to train
-- Make sure your config file (default: `e2edutch/cfg/defaults.conf`) includes the data files you want to use for training
-- Run `scripts/setup_train.sh e2edutch/cfg/defaults.conf`. This script converts the conll2012 data to jsonlines files, and caches the word and contextualized embeddings.
-- If you want to enable the use of a GPU, set the environment variable:
-```bash
-export GPU=0
-```
-- Run the training script:
-```bash
-python -m e2edutch.train <model-name>
-```
-## Citing this code
-If you use this code in your research, please cite it as follows:
-```
-@misc{YourReferenceHere,
-author = {
-            Dafne van Kuppevelt and
-            Jisk Attema
-         },
-title  = {e2e-Dutch},
-doi    = {10.5281/zenodo.4146960},
-url    = {https://github.com/Filter-Bubble/e2e-Dutch}
-}
-```
-As the code is largely based on [original e2e model for English](https://github.com/kentonl/e2e-coref), please make sure to also cite [the original e2e paper](https://arxiv.org/abs/1804.05392).
