@@ -1,6 +1,9 @@
 #!/bin/bash
 CONFIG_FILE=$1
 
+# NOTE: This reguires a file in the style of the 'defaults.conf' to be inputted
+# as the first argument so that the model can download the data, this can
+# be altered to make it more understandable
 
 extract_config() {
   pyhocon -f properties < $CONFIG_FILE | awk '/^'$1'/{print $3}'
@@ -19,11 +22,10 @@ DEV_FILE_CONLL=`extract_config conll_eval_path`
 DATAPATH=`extract_config datapath`
 
 echo $TRAIN_FILE_JSON $TRAIN_FILE_CONLL $DEV_FILE_JSON $DEV_FILE_CONLL
-dlx http://conll.cemantix.org/download reference-coreference-scorers.v8.01.tar.gz
-mkdir conll-2012
-mv reference-coreference-scorers conll-2012/scorer
 
-# TODO: download conll data
+# Removed the dependency to this library as we are using a different scorer
+# TODO: I want to make a slight adjustment here, name just doing a minimize
+# combined with the conll data to get the clusters for the existing jsonlines file
 python e2edutch/minimize.py $TRAIN_FILE_CONLL -o $TRAIN_FILE_JSON
 python e2edutch/minimize.py $DEV_FILE_CONLL -o $DEV_FILE_JSON
 

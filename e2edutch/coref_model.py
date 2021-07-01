@@ -25,6 +25,13 @@ e2e_cached_embedding = None
 e2e_cached_bert_model = None
 e2e_cached_bert_tokenizer = None
 
+"""
+CHANGES MADE TO THIS FILE FOR THE PARLIAMENTARY DOCUMENTS:
+    - The ability to add speaker information to this version of the model,
+    the implementation of this is identical to that used in the original file of the e2e model
+    (https://github.com/kentonl/e2e-coref/blob/master/coref_model.py)
+"""
+
 
 class CorefModel(object):
     def __init__(self, config):
@@ -100,6 +107,8 @@ class CorefModel(object):
         # Character indices.
         input_props.append((tf.int32, [None, None, None]))
         input_props.append((tf.int32, [None]))  # Text lengths..
+        # add the speaker ID to the input
+        input_props.append((tf.int32, [None]))  # Speaker IDs.
         input_props.append((tf.int32, []))  # Genre.
         input_props.append((tf.bool, []))  # Is training.
         input_props.append((tf.int32, [None]))  # Gold starts.
@@ -218,6 +227,13 @@ class CorefModel(object):
 
         sentences = example["sentences"]
 
+        num_words = sum(len(s) for s in sentences)
+
+        # Get a list of the speaker IDs (can still be strings at this point) and flatten the list of lists
+        speakers = util.flatten(example["speakers"])
+
+        assert num_words == len(speakers)
+
         max_sentence_length = max(len(s) for s in sentences)
         max_word_length = max(max(max(len(w) for w in s)
                                   for s in sentences),
@@ -243,6 +259,13 @@ class CorefModel(object):
                                                 for c in word]
         tokens = np.array(tokens)
 
+        # Convert the string-type IDs to simple unique integers and convert this list
+        # to a numpy array
+        speaker_dict = {s: i for i, s in enumerate(set(speakers))}
+        speaker_ids = np.array([speaker_dict[s] for s in speakers])
+
+        # the genre is extracted from the example dictionary, if it exists this is used,
+        # otherwise the 'all' setting is used for training
         genre = self.genres[example.get('genre', 'all')]
 
         gold_starts, gold_ends = self.tensorize_mentions(gold_mentions)
@@ -251,7 +274,7 @@ class CorefModel(object):
             example["doc_key"], example["sentences"])
 
         example_tensors = (tokens, context_word_emb, head_word_emb, lm_emb,
-                           char_index, text_len, genre, is_training,
+                           char_index, text_len, speaker_ids, genre, is_training,
                            gold_starts, gold_ends, cluster_ids)
 
         if is_training and len(
@@ -261,7 +284,7 @@ class CorefModel(object):
             return example_tensors
 
     def truncate_example(self, tokens, context_word_emb, head_word_emb, lm_emb,
-                         char_index, text_len, genre, is_training, gold_starts,
+                         char_index, text_len, speaker_ids, genre, is_training, gold_starts,
                          gold_ends, cluster_ids):
         max_training_sentences = self.config["max_training_sentences"]
         num_sentences = context_word_emb.shape[0]
@@ -285,6 +308,9 @@ class CorefModel(object):
         text_len = text_len[sentence_offset:sentence_offset
                             + max_training_sentences]
 
+        # retrieve the IDs of the speakers that uttered the span that is under consideration
+        speaker_ids = speaker_ids[word_offset: word_offset + num_words]
+
         gold_spans = np.logical_and(
             gold_ends >= word_offset, gold_starts < word_offset + num_words)
         gold_starts = gold_starts[gold_spans] - word_offset
@@ -292,7 +318,7 @@ class CorefModel(object):
         cluster_ids = cluster_ids[gold_spans]
 
         return (tokens, context_word_emb, head_word_emb, lm_emb, char_index,
-                text_len, genre, is_training, gold_starts, gold_ends,
+                text_len, speaker_ids, genre, is_training, gold_starts, gold_ends,
                 cluster_ids)
 
     def get_candidate_labels(self, candidate_starts, candidate_ends,
@@ -357,7 +383,7 @@ class CorefModel(object):
                 top_fast_antecedent_scores, top_antecedent_offsets)
 
     def get_predictions_and_loss(self, tokens, context_word_emb, head_word_emb,
-                                 lm_emb, char_index, text_len, genre,
+                                 lm_emb, char_index, text_len, speaker_ids, genre,
                                  is_training, gold_starts, gold_ends,
                                  cluster_ids):
         self.dropout = self.get_dropout(
@@ -528,8 +554,13 @@ class CorefModel(object):
             candidate_cluster_ids, top_span_indices)  # [k]
         top_span_mention_scores = tf.gather(
             candidate_mention_scores, top_span_indices)  # [k]
+
+        # TODO: this is never used, also not in the original code, it can probably be removed
         top_span_sentence_indices = tf.gather(
             candidate_sentence_indices, top_span_indices)  # [k]
+
+        # get the speaker IDs of the top ranking spans
+        top_span_speaker_ids = tf.gather(speaker_ids, top_span_starts)  # [k]
 
         c = tf.minimum(self.config["max_top_antecedents"], k)
 
@@ -558,6 +589,7 @@ class CorefModel(object):
                                              top_antecedents,
                                              top_antecedent_emb,
                                              top_antecedent_offsets,
+                                             top_span_speaker_ids,
                                              genre_emb))  # [k, c]
                 top_antecedent_weights = tf.nn.softmax(
                     tf.concat([dummy_scores_nomention,
@@ -687,13 +719,21 @@ class CorefModel(object):
 
     def get_slow_antecedent_scores(
             self, top_span_emb, top_antecedents, top_antecedent_emb,
-            top_antecedent_offsets, genre_emb):
+            top_antecedent_offsets, top_span_speaker_ids, genre_emb):
         k = util.shape(top_span_emb, 0)
         c = util.shape(top_antecedents, 1)
 
         feature_emb_list = []
 
         if self.config["use_metadata"]:
+            # Get the information on the speaker ID of the gold span and the top ranking spans
+            # and determine whether or not the spans are spoken by the same speaker.
+            top_antecedent_speaker_ids = tf.gather(top_span_speaker_ids, top_antecedents)  # [k, c]
+            same_speaker = tf.equal(tf.expand_dims(top_span_speaker_ids, 1), top_antecedent_speaker_ids)  # [k, c]
+            speaker_pair_emb = tf.gather(tf.get_variable("same_speaker_emb", [2, self.config["feature_size"]]),
+                                         tf.to_int32(same_speaker))  # [k, c, emb]
+            feature_emb_list.append(speaker_pair_emb)
+
             tiled_genre_emb = tf.tile(tf.expand_dims(
                 tf.expand_dims(genre_emb, 0), 0), [k, c, 1])  # [k, c, emb]
             feature_emb_list.append(tiled_genre_emb)

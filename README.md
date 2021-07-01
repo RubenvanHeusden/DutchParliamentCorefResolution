@@ -43,3 +43,15 @@ the form of the '--epochs' command line argument.
 - As the method used for converting the files to jsonlines is custom because of the speaker information, a new train preparation script is added, 'my_train.sh',
 and the 'download.py' script was also also slightly altered to remove downloads that are not necessary for this project.
 
+## Adding the usage of speaker metadata to the e2e model
+    - TODO
+
+
+## Additional notes
+### jsonlines input format
+- When using the jsonlines input format for the Dutch e2e model, it is
+important that the the 'doc_key' parameter is specified correctly, to avoid errors later.
+  One should create document IDs that look like the following: 'doc_type/doc_id',
+  where 'doc_type' should be one of the predefined types, discussed in [this issue](https://github.com/kentonl/e2e-coref/issues/37), and 'doc_id' should be the
+  name of the document (the name of this document is not really important, but it does have to
+  be unique!).

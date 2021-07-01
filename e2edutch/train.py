@@ -6,6 +6,7 @@ import logging
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 
+from tqdm import tqdm
 from e2edutch import util
 from e2edutch import coref_model as cm
 
@@ -13,6 +14,7 @@ from e2edutch import coref_model as cm
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('config')
+    # If this argument is given, the train path in the '--cfg_file' will be overwritten
     parser.add_argument('--train',
                         type=str,
                         default=None,
@@ -21,19 +23,32 @@ def get_parser():
                         type=str,
                         default=None,
                         help="jsonlines file used for evaluating")
+    # ConLL file used for eval. TODO: disable/remove this for my version as I do not use this in my code
     parser.add_argument('--eval_conll',
                         type=str,
                         default=None,
                         help="conll file used for evaluating")
+    # configuration file that should take the place of 'defaults.conf'
     parser.add_argument('--cfg_file',
                         type=str,
                         default=None,
                         help="config file")
+
+    # configuration file that should take the place of 'models.conf'
     parser.add_argument('--model_cfg_file',
                         type=str,
                         default=None,
                         help="model config file")
+    # parameter specifying the number of epoch for which the model should be trained
+    parser.add_argument('--num_epochs',
+                        type=int,
+                        default=1,
+                        help="number of epochs")
     parser.add_argument('-v', '--verbose', action='store_true')
+    parser.add_argument('--log_dir',
+                        type=str,
+                        default=None,
+                        help="directory used for logging.")
     return parser
 
 
@@ -52,13 +67,17 @@ def main(args=None):
     if args.eval_conll is not None:
         config['conll_eval_path'] = args.eval_conll
 
+    # Allow for the manual specification of a log directory
+    log_dir = os.path.join(config['log_root'], config['log_dir'])
+    if args.log_dir is not None:
+        log_dir = args.log_dir
+
     report_frequency = config["report_frequency"]
     eval_frequency = config["eval_frequency"]
 
     model = cm.CorefModel(config)
     saver = tf.train.Saver()
 
-    log_dir = os.path.join(config['log_root'], config['log_dir'])
     writer = tf.summary.FileWriter(log_dir, flush_secs=20)
 
     max_f1 = 0
@@ -74,7 +93,7 @@ def main(args=None):
             saver.restore(session, ckpt.model_checkpoint_path)
 
         initial_time = time.time()
-        while True:
+        for _ in tqdm(range(args.num_epochs)):
             tf_loss, tf_global_step, _ = session.run(
                 [model.loss, model.global_step, model.train_op])
             accumulated_loss += tf_loss
@@ -109,6 +128,11 @@ def main(args=None):
 
                 print("[{}] evaL_f1={:.2f}, max_f1={:.2f}".format(
                     tf_global_step, eval_f1, max_f1))
+    # Save at the end to ensure that we have an up-to-date model for
+    # the evaluation
+        print(log_dir)
+        saver.save(session, os.path.join(log_dir, "model"),
+                   global_step=tf_global_step)
 
 
 if __name__ == "__main__":
